@@ -147,11 +147,14 @@ updateEntity f world ent =
 
 componentL componentType = Lens.lens ((flip fetchComponent) componentType) setComponent
 dataL dataId = Lens.lens  ((flip getComponentDataUnsafe) dataId) ((flip setComponentData) dataId)
+componentDataL componentType dataId = (componentL componentType . dataL dataId)
 
 position :: Component
 position = newComponent "pos" [
         ("x", NumData 0),
         ("y", NumData 0),
+        ("vx", NumData 1),
+        ("vy", NumData (-1)), 
         ("angle", NumData 0)
     ]
 
@@ -164,13 +167,27 @@ canShoot = newComponent "can_shoot" [
 spaceship :: Entity
 spaceship = newEntity [position, canShoot]
 
-rotate :: Entity -> World -> Entity
-rotate ent world = 
-    Lens.over (componentL "pos" . dataL "angle") (\(NumData rot) -> NumData $ rot + 1) ent
+applyVelocity :: Entity -> World -> Entity
+applyVelocity ent world = 
+    modNum ent "pos" "angle" (\angle -> atan2 vy vx) $
+    modNum ent "pos" "x" (\x -> x + vx) $ 
+    modNum ent "pos" "y" (\y -> y + vy) ent
+    where vx = getNum ent "pos" "vx"
+          vy = getNum ent "pos" "vy"
 
-spinner :: EntitySystem
-spinner = newSystem "spinner" ["pos"] (\world ents ->
-    foldl' (updateEntity rotate) world ents
+getNum ent com att = case Lens.view (componentDataL com att) ent of
+    (NumData ret) -> ret
+    _ -> error "Unexpected component data"
+
+modNum ent com att f = 
+    Lens.over (componentDataL com att) (\(NumData x) -> 
+        NumData $ f x
+    )
+
+
+processVelocity :: EntitySystem
+processVelocity = newSystem "processVelocity" ["pos"] (\world ents ->
+    foldl' (updateEntity applyVelocity) world ents
     )
 
 
@@ -181,5 +198,5 @@ loop w = do
     loop w'
 
 main = do
-    let w = addSystem (addEntity newWorld spaceship) spinner
+    let w = addSystem (addEntity newWorld spaceship) processVelocity
     loop w
